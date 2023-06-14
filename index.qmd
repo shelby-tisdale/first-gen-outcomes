@@ -1,0 +1,90 @@
+---
+author: "Shelby Tisdale"
+format: html
+---
+
+```{r}
+#| label: load-data-and-packages
+#| warning: false
+
+library(tidyverse)
+library(naniar)
+library(janitor)
+
+colleges <- read_csv(unzip("Most-Recent-Cohorts-Institution_04192023.zip",
+                           "Most-Recent-Cohorts-Institution.csv"))
+lookup_var_names <- read.csv("institution_lookup_table.csv")
+colleges[colleges == "NULL"] = NA
+
+```
+
+```{r}
+#| label: clean-var-names
+#| warning: false
+
+name_match = match(names(colleges), lookup_var_names$VARIABLE.NAME)
+names(colleges)[na.omit(name_match)] = lookup_var_names$developer.friendly.name[!is.na(name_match)]
+names(colleges) <- make.names(names(colleges), unique = TRUE)
+
+```
+
+source: https://stackoverflow.com/questions/34725617/rename-columns-from-a-lookup-table
+
+```{r}
+#| label: clean-minority-serving
+minority_cols <- colleges |>
+  select(starts_with("minority_serving"))
+
+for (i in 1:length(minority_cols)) {
+  minority_cols[[i]] <- str_replace(minority_cols[[i]], "1", colnames(minority_cols)[i])
+}
+
+minority_cols <- minority_cols |>
+  unite(col = "minority", sep = "", remove = TRUE)
+
+minority_cols[] <- lapply(minority_cols, gsub, pattern = "0", replacement = "")
+minority_cols[] <- lapply(minority_cols, gsub, pattern = "minority_serving.", replacement = "")
+
+minority_cols <- minority_cols |>
+  mutate(minority = if_else(minority == "" | is.na(minority), "pwi", minority))
+
+colleges[27] <- minority_cols
+colleges <- colleges |>
+  rename(minority_serving = minority_serving.historically_black) |>
+  select(!starts_with("minority_serving.")) |>
+  mutate(minority_serving = case_when(minority_serving == "historically_black" ~ "Historically Black",
+                                      minority_serving == "predominantly_black" ~ "Predominantly Black",
+                                      minority_serving == "annh"~"Alaska Native-/Native Hawaiian",
+                                      minority_serving == "tribal" ~ "Tribal",
+                                      minority_serving == "aanipi" ~ "Asian American / Pacific Islander",
+                                      minority_serving == "hispanic" ~ "Hispanic",
+                                      minority_serving == "nant" ~ "Native American (Non-Tribal)",
+                                      minority_serving == "pwi" ~ "Predominantly White",
+                                      .default = "Multiple"))
+```
+
+```{r}
+# label: clean-gender-affiliation
+
+gender_cols <- colleges |>
+  select(ends_with("_only") & !online_only)
+
+for (i in 1:length(gender_cols)) {
+  gender_cols[[i]] <- str_replace(gender_cols[[i]], "1", colnames(gender_cols)[i])
+}
+
+gender_cols <- gender_cols |>
+  unite(col = "gender_affiliation", sep = "", remove = TRUE)
+
+gender_cols[] <- lapply(gender_cols, gsub, pattern = "0", replacement = "")
+gender_cols[] <- lapply(gender_cols, gsub, pattern = "_only", replacement = "")
+
+gender_cols <- gender_cols |>
+  mutate(gender_affiliation = if_else(gender_affiliation == "" | is.na(gender_affiliation), "co-ed", gender_affiliation))
+
+colleges[28] <- gender_cols
+colleges <- colleges |>
+  rename(gender_affiliation = men_only) |>
+  select(!women_only)
+```
+
